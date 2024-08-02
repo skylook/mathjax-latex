@@ -121,6 +121,7 @@ class MathJax_Latex {
 
 		add_action( 'init', [ __CLASS__, 'allow_mathml_tags' ] );
 		add_filter( 'tiny_mce_before_init', [ __CLASS__, 'allow_mathml_tags_in_tinymce' ] );
+		add_filter( 'mathjax', [ __CLASS__, 'add_mathjax_script_async' ], 10, 2 );
 	}
 
 	/**
@@ -192,6 +193,18 @@ class MathJax_Latex {
 	}
 
 	/**
+	 * Add script sync in mathjax
+	 *
+	 */
+	public static function add_mathjax_script_async($tag, $handle) {
+		if($handle !== 'mathjax') {
+		  return $tag;
+		}
+		
+		return str_replace(' src=', ' async src=', $tag);
+	  }
+
+	/**
 	 * Enqueue/add the JavaScript to the <head> tag.
 	 */
 	public static function add_script() {
@@ -205,7 +218,9 @@ class MathJax_Latex {
 
 		// Initialise option for existing MathJax-LaTeX users.
 		if ( get_option( 'kblog_mathjax_use_cdn' ) || ! get_option( 'kblog_mathjax_custom_location' ) ) {
-			$mathjax_location = 'https://cdnjs.cloudflare.com/ajax/libs/mathjax/' . MATHJAX_JS_VERSION . '/MathJax.js';
+			// $mathjax_location = 'https://cdnjs.cloudflare.com/ajax/libs/mathjax/' . MATHJAX_JS_VERSION . '/MathJax.js';
+			$mathjax_location = 'https://cdn.jsdelivr.net/npm/mathjax@' . MATHJAX_JS_VERSION . '/es5/tex-chtml.js';
+			
 		} else {
 			$mathjax_location = get_option( 'kblog_mathjax_custom_location' );
 		}
@@ -213,12 +228,44 @@ class MathJax_Latex {
 		$config      = get_option( 'kblog_mathjax_config' ) ?: 'default';
 		$mathjax_url = add_query_arg( 'config', $config, $mathjax_location );
 
-		wp_enqueue_script( 'mathjax', $mathjax_url, false, MATHJAX_PLUGIN_VERSION, false );
+		// wp_enqueue_script( 'mathjax', $mathjax_url, false, MATHJAX_PLUGIN_VERSION, false );
+
+		wp_enqueue_script(
+			'mathjax',
+			$mathjax_url,
+			array(),
+			MATHJAX_PLUGIN_VERSION,
+			array( 
+				'in_footer' => true,
+				// 'strategy'  => 'defer',
+			)
+			);
+		
+		// wp_script_add_data( 'mathjax', 'async/defer' , true );
+
+		// wp_register_script( 
+		// 	'mathjax', 
+		// 	$mathjax_url, 
+		// 	array(), 
+		// 	MATHJAX_PLUGIN_VERSION, 
+		// 	array(
+		// 		'in_footer' => true,
+		// 		'strategy'  => 'async',
+		// 	)
+		// )
 
 		$mathjax_config = apply_filters( 'mathjax_config', [] );
 		if ( $mathjax_config ) {
 			wp_add_inline_script( 'mathjax', 'MathJax.Hub.Config(' . wp_json_encode( $mathjax_config ) . ');' );
 		}
+
+		// wp_add_inline_script( 'mathjax', 'MathJax = {
+		// 	tex: {
+		// 	  tags: \'all\'
+		// 	}
+		//   };' );
+
+		wp_add_inline_script( 'mathjax', "MathJax = {\n  tex: {\n    inlineMath: [['$','$'],['\\\\(','\\\\)']], \n    processEscapes: true\n  },\n  options: {\n    ignoreHtmlClass: 'tex2jax_ignore|editor-rich-text'\n  }\n};\n" );
 	}
 
 
