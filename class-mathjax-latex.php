@@ -121,7 +121,6 @@ class MathJax_Latex {
 
 		add_action( 'init', [ __CLASS__, 'allow_mathml_tags' ] );
 		add_filter( 'tiny_mce_before_init', [ __CLASS__, 'allow_mathml_tags_in_tinymce' ] );
-		add_filter( 'mathjax', [ __CLASS__, 'add_mathjax_script_async' ], 10, 2 );
 	}
 
 	/**
@@ -196,13 +195,27 @@ class MathJax_Latex {
 	 * Add script sync in mathjax
 	 *
 	 */
-	public static function add_mathjax_script_async($tag, $handle) {
-		if($handle !== 'mathjax') {
-		  return $tag;
+	public static function add_async_to_mathjax_script( $tag, $handle, $src ) {
+		// var_dump($tag, $handle, $src);
+		// echo "<br />";
+		// echo $src;
+		if ( 'mathjax' === $handle ) {
+			// $tag = '<script async type="text/javascript" src="' . esc_url( $src ) . '" id="mathjax-js"></script>';
+			$tag = str_replace( '<script src="', '<script async src="', $tag );
+			return $tag;
 		}
+		// if ( 'mathjax' === $handle ) {
+		// 	echo $tag;
+		// 	$tag = '<script async type="text/javascript" src="' . esc_url( $src ) . '" id="mathjax-js"></script>';
+		// }
+
+		// echo "right here";
+
+		// Add async attribute
 		
-		return str_replace(' src=', ' async src=', $tag);
-	  }
+		return $tag;
+		// return $tag;
+	}
 
 	/**
 	 * Enqueue/add the JavaScript to the <head> tag.
@@ -241,6 +254,8 @@ class MathJax_Latex {
 			)
 			);
 		
+		add_filter( 'script_loader_tag', array( __CLASS__, 'add_async_to_mathjax_script'), 10, 3 );
+
 		// wp_script_add_data( 'mathjax', 'async/defer' , true );
 
 		// wp_register_script( 
@@ -259,13 +274,17 @@ class MathJax_Latex {
 			wp_add_inline_script( 'mathjax', 'MathJax.Hub.Config(' . wp_json_encode( $mathjax_config ) . ');' );
 		}
 
-		// wp_add_inline_script( 'mathjax', 'MathJax = {
-		// 	tex: {
-		// 	  tags: \'all\'
-		// 	}
-		//   };' );
+		wp_add_inline_script( 'mathjax', 'MathJax = {
+			tex: {
+			  tags: \'all\'
+			}
+		  };' );
 
-		wp_add_inline_script( 'mathjax', "MathJax = {\n  tex: {\n    inlineMath: [['$','$'],['\\\\(','\\\\)']], \n    processEscapes: true\n  },\n  options: {\n    ignoreHtmlClass: 'tex2jax_ignore|editor-rich-text'\n  }\n};\n" );
+		// wp_add_inline_script( 'mathjax', "MathJax = {\n  tex: {\n    inlineMath: [['$','$'],['\\\\(','\\\\)']], \n    processEscapes: true\n  },\n  options: {\n    ignoreHtmlClass: 'tex2jax_ignore|editor-rich-text'\n  }\n};\n" );
+		// add_filter( 'mathjax', array( __CLASS__, 'add_mathjax_script_async' ), 10, 2 );
+		// echo "Here!";
+
+
 	}
 
 
