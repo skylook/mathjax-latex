@@ -117,10 +117,26 @@ class MathJax_Latex {
 
 		add_filter( 'plugin_action_links', [ __CLASS__, 'mathjax_settings_link' ], 9, 2 );
 
-		add_filter( 'the_content', [ __CLASS__, 'filter_br_tags_on_math' ] );
+		// add_filter( 'the_content', [ __CLASS__, 'filter_br_tags_on_math' ] );
+
+		// add_filter( 'the_content', array( __CLASS__, 'wp_mathjax_latex_protect_content'), 1 );
+		// add_filter( 'the_content', array( __CLASS__, 'wp_mathjax_latex_restore_content'), 100 );
+
+		add_filter('the_content', array( __CLASS__, 'wp_protect_math_content'), 9);
+		add_filter('comment_text', array( __CLASS__, 'wp_protect_math_content'), 9);
 
 		add_action( 'init', [ __CLASS__, 'allow_mathml_tags' ] );
 		add_filter( 'tiny_mce_before_init', [ __CLASS__, 'allow_mathml_tags_in_tinymce' ] );
+
+		// remove_filter('the_content', 'wpautop');
+		// add_filter('the_content', 'wpautop', 12);
+
+		//单个$或者双个$$符号匹配，先匹配 $$ 后匹配 $
+		// add_filter("the_content", array(__CLASS__, "katex_markup_single"), 9);
+		// add_filter("comment_text", array(__CLASS__, "katex_markup_single"), 9);
+
+		// add_filter("the_content", array(__CLASS__, "katex_markup_double"), 8);
+		// add_filter("comment_text", array(__CLASS__, "katex_markup_double"), 8);
 	}
 
 	/**
@@ -217,6 +233,352 @@ class MathJax_Latex {
 		// return $tag;
 	}
 
+	public static function katex_markup_single($content) {
+        // 匹配单行LaTeX
+        $regexTeXInline = '
+        %
+        \$
+            ((?:
+                [^$]+ # Not a dollar
+                |
+                (?<=(?<!\\\\)\\\\)\$ # Dollar preceded by exactly one slash
+                )+)
+            (?<!\\\\)
+        \$ # Dollar preceded by zero slashes
+        %ix';
+
+        // 简易版本，可能存在误判，但尽可能简单，以避免上面这个LaTeX引起的性能问题
+        $regexTeXMultilineLite = "/\$[\S\ ]+?\$/ix";
+        
+        $content = preg_replace_callback($regexTeXMultilineLite, array($this, "katex_src_replace"), $content);
+
+        $textarr = wp_html_split($content);
+
+        // 需要跳过的行数
+        $count = 0;
+        // 是否需要跳过LaTeX解析
+        $pass  = false;
+        // 是否在代码块内
+        $isInCodeBlock = false;
+
+        foreach ($textarr as &$element) {
+            // 默认进行LaTeX解析，如果满足下面的判断条件，则跳过
+            $pass = false;
+
+            // 判断已经跳过的行数
+            if ($count > 0) {
+                ++ $count;
+            }
+
+            /**
+             * 1. 判断是否满足如下规则，如果是则不进行LaTeX解析
+             * <pre>
+             * </pre>
+             */
+            // 判断是否是<pre>然后开始计数，此时为第一行
+            if (htmlspecialchars_decode($element) == "<pre>") {
+                $isInCodeBlock = true;
+                $pass = true;
+            }
+
+            // 如果发现是</pre>标签，则表示代码部分结束，继续处理
+            if (htmlspecialchars_decode($element) == "</pre>") {
+                $isInCodeBlock = false;
+                $pass = false;
+            }
+
+            /**
+             * 2. 对于使用```katex的多行LaTeX，不在里面进行单行LaTeX的重复解析
+             */
+            if (strpos(htmlspecialchars_decode($element), '<div class="katex math') === 0) {
+                $count = 1;
+                $pass = true;
+            }
+            
+            if ($count == 3 && htmlspecialchars_decode($element) == "</div>") {
+                $count = 0;
+                $pass = false;
+            }
+
+            /**
+             * 3. 对于其他空行或可能为HTML单行标签的行，直接跳过
+             */
+            if ($element == "" || $element[0] == "<" || stripos($element, "$") === false) {
+                $pass = true;
+            }
+
+            /**
+             * 4. 如果当前还在代码块内，继续跳过
+             */
+            if ($isInCodeBlock) {
+                $pass = true;
+            }
+
+            // 如果存在需要跳过LaTeX解析的情况，在这里跳过
+            if ($pass) {
+                continue;
+            } else {
+                $element = preg_replace_callback($regexTeXInline, array($this, "katex_src_inline"), $element);
+            }
+        }
+
+        return implode("", $textarr);
+    }
+
+	public static function katex_markup_double($content) {
+
+        // 匹配多行LaTeX
+        // 尽管只是多了一个$符号，却会引起指数级的回溯
+        $regexTeXMultiline = '
+        %
+        \$\$
+            ((?:
+                [^$]+ # Not a dollar
+                |
+                (?<=(?<!\\\\)\\\\)\$ # Dollar preceded by exactly one slash
+                )+)
+            (?<!\\\\)
+        \$\$ # Dollar preceded by zero slashes
+        %ix';
+
+        // 简易版本，可能存在误判，但尽可能简单，以避免上面这个LaTeX引起的性能问题
+        $regexTeXMultilineLite = '
+        %
+		\$\$
+			([\S\s]+?)
+		\$\$
+        %ix';
+
+        $content = preg_replace_callback($regexTeXMultilineLite, array($this, "katex_src_replace"), $content);
+
+        $textarr = wp_html_split($content);
+
+        // 需要跳过的行数
+        $count = 0;
+        // 是否需要跳过LaTeX解析
+        $pass  = false;
+        // 是否在代码块内
+        $isInCodeBlock = false;
+
+        foreach ($textarr as &$element) {
+            // 默认进行LaTeX解析，如果满足下面的判断条件，则跳过
+            $pass = false;
+
+            // 判断已经跳过的行数
+            if ($count > 0) {
+                ++ $count;
+            }
+
+            /**
+             * 1. 判断是否满足如下规则，如果是则不进行LaTeX解析
+             * <pre>
+             * </pre>
+             */
+            // 判断是否是<pre>然后开始计数，此时为第一行
+            if (htmlspecialchars_decode($element) == "<pre>") {
+                $isInCodeBlock = true;
+                $pass = true;
+            }
+
+            // 如果发现是</pre>标签，则表示代码部分结束，继续处理
+            if (htmlspecialchars_decode($element) == "</pre>") {
+                $isInCodeBlock = false;
+                $pass = false;
+            }
+
+            /**
+             * 2. 对于其他空行或可能为HTML单行标签的行，直接跳过
+             */
+            if ($element == "" || $element[0] == "<" || !stripos($element, "$$")) {
+                $pass = true;
+            }
+
+            /**
+             * 3. 如果当前还在代码块内，继续跳过
+             */
+            if ($isInCodeBlock) {
+                $pass = true;
+            }
+
+            // 如果存在需要跳过LaTeX解析的情况，在这里跳过
+            if ($pass) {
+                continue;
+            } else {
+                $element = preg_replace_callback($regexTeXMultiline, array(__CLASS__, "katex_src_multiline"), $element);
+            }
+        }
+
+        return implode("", $textarr);
+    }
+
+	public static function katex_src_replace($matches) {
+
+        //在如果公式含有_则会被Markdown解析，所以现在需要转换过来
+        $content = str_replace(
+            array("<em>", "</em>"),
+            array("_", "_"),
+            $matches[0]
+        );
+
+        return $content;
+    }
+
+	/**
+	 * Protect LaTeX content by converting it to HTML entities
+	 *
+	 * @param string $content The content of the post.
+	 * @return string Modified content with LaTeX protected.
+	 */
+	public static function wp_mathjax_latex_protect_content( $content ) {
+
+		// echo "Here 1";
+
+		// Protect inline and display math delimiters and block equations
+		$content = preg_replace_callback('/(\$\$.*?\$\$|\$.*?\$|\\\[.*?\\\]|\\\(.*?\\\)|\\begin\{.*?\}.*?\\end\{.*?\})/s', function($matches) {
+			var_dump($matches);
+			return '<!-- LATEX_START -->' . htmlspecialchars($matches[0], ENT_NOQUOTES) . '<!-- LATEX_END -->';
+		}, $content);
+
+		echo $content;
+		
+
+		return $content;
+	}
+
+	/**
+	 * Restore protected LaTeX content by decoding HTML entities
+	 *
+	 * @param string $content The content of the post.
+	 * @return string Modified content with LaTeX restored.
+	 */
+	public static function wp_mathjax_latex_restore_content( $content ) {
+
+		echo "Here 2";
+		// Restore LaTeX content
+		$content = preg_replace_callback('/<!-- LATEX_START -->(.*?)<!-- LATEX_END -->/s', function($matches) {
+			return htmlspecialchars_decode($matches[1], ENT_NOQUOTES);
+		}, $content);
+
+		return $content;
+	}
+
+	public static function wp_remove_auto_br_p($content) {
+		return str_replace( [ '<br/>', '<br />', '<br>', '<p>', '</p>' ], '', $content );
+	}
+	
+	public static function wp_filter_math_content($content) {
+		// echo "\n1)->".$content;
+		// echo "\n2)->".html_entity_decode($content);
+		// echo "\n3)->".shortcode_unautop(html_entity_decode($content));
+		// echo "\n4)->".self::wp_remove_auto_br_p(shortcode_unautop(html_entity_decode($content)));
+		return self::wp_remove_auto_br_p(shortcode_unautop(html_entity_decode($content)));
+	}
+	/**
+	 * Protects inline and block math content from being altered by WordPress formatting.
+	 *
+	 * This function uses regular expressions to find and wrap LaTeX math content in HTML tags
+	 * that prevent WordPress from automatically adding <br> or <p> tags.
+	 *
+	 * @param string $content The post content to be filtered.
+	 * @return string The filtered content with math protected.
+	 */
+	public static function wp_protect_math_content($content) {
+		// Protect markdown block math
+		// 匹配多行LaTeX
+        // 尽管只是多了一个$符号，却会引起指数级的回溯
+        $regexTeXMultiline = '
+        %
+        \$\$
+            ((?:
+                [^$]+ # Not a dollar
+                |
+                (?<=(?<!\\\\)\\\\)\$ # Dollar preceded by exactly one slash
+                )+)
+            (?<!\\\\)
+        \$\$ # Dollar preceded by zero slashes
+        %ix';
+
+        // 简易版本，可能存在误判，但尽可能简单，以避免上面这个LaTeX引起的性能问题
+        $regexTeXMultilineLite = '
+        %
+		\$\$
+			([\S\s]+?)
+		\$\$
+        %ix';
+
+		// 匹配单行LaTeX
+        $regexTeXInline = '
+        %
+        \$
+            ((?:
+                [^$]+ # Not a dollar
+                |
+                (?<=(?<!\\\\)\\\\)\$ # Dollar preceded by exactly one slash
+                )+)
+            (?<!\\\\)
+        \$ # Dollar preceded by zero slashes
+        %ix';
+
+        // 简易版本，可能存在误判，但尽可能简单，以避免上面这个LaTeX引起的性能问题
+        $regexTeXMultilineLite = "/\$[\S\ ]+?\$/ix";
+
+		// 匹配块级LaTeX，主要针对块级数学公式，例如 \begin{equation} ... \end{equation}
+		$regexTeXMathBlock = '/\\begin\{([^}]+)\}(.*?)\\end\{\1\}/s';; 
+
+		$is_block_math = false;
+
+		$res_content = $content;
+
+		$content = preg_replace_callback($regexTeXMultiline, function ($matches) {
+			if ( count( $matches ) === 1 ) {
+				// No matches found.
+				return $matches[0]; // 返回完整匹配.
+			}
+
+			$is_block_math = true;
+
+			echo "\n\n<br />display math = ".self::wp_filter_math_content( $matches[0] );
+			$res_content = '<!-- LATEX_START --><pre class="latex-block">' . self::wp_filter_math_content( $matches[0] ) . '</pre><!-- LATEX_END -->';
+		}, $content);
+
+		if ($is_block_math === false) {
+			echo "\n\n<br />22 content = ".$content;
+			$content = preg_replace_callback($regexTeXMathBlock, function ($matches) {
+				if ( count( $matches ) === 1 ) {
+					// No matches found.
+					return $matches[0]; // 返回完整匹配.
+				}
+	
+				$is_block_math = true;
+	
+				echo "\n\n<br />display math block = ".self::wp_filter_math_content( $matches[0] );
+				$res_content = '<!-- LATEX_START --><pre class="latex-block">' . self::wp_filter_math_content( $matches[0] ) . '</pre><!-- LATEX_END -->';
+			}, $content);
+		}
+
+		// echo "content = ".$content;
+
+		// Try inline math matching when not block math
+		// e.g. block math $$E=m^c^2$$ no need to match inline math.
+		if ($is_block_math === false) {
+			// Protect markdown inline math
+			$content = preg_replace_callback($regexTeXInline, function ($matches) {
+				if ( count( $matches ) === 1 ) {
+					// No matches found.
+					return $matches [0]; // 返回完整匹配.
+				}
+
+				// if ( $matches[0] )
+				echo "\n\n<br />inline math = ".self::wp_filter_math_content( $matches[0] );
+				$res_content = '<!-- LATEX_START --><pre class="latex-inline">' . self::wp_filter_math_content( $matches[0] ) . '</pre><!-- LATEX_END -->';
+			}, $content);
+		}
+
+		// var_dump($content);
+
+		return $res_content;
+	}
+
 	/**
 	 * Enqueue/add the JavaScript to the <head> tag.
 	 */
@@ -283,7 +645,6 @@ class MathJax_Latex {
 		// wp_add_inline_script( 'mathjax', "MathJax = {\n  tex: {\n    inlineMath: [['$','$'],['\\\\(','\\\\)']], \n    processEscapes: true\n  },\n  options: {\n    ignoreHtmlClass: 'tex2jax_ignore|editor-rich-text'\n  }\n};\n" );
 		// add_filter( 'mathjax', array( __CLASS__, 'add_mathjax_script_async' ), 10, 2 );
 		// echo "Here!";
-
 
 	}
 
