@@ -483,6 +483,45 @@ class MathJax_Latex {
 	 * @return string The filtered content with math protected.
 	 */
 	public static function wp_protect_math_content($content) {
+
+		// https://regex101.com/r/wP2aV6/25
+		// 匹配行内和块状LaTeX
+		$regexTeXInlineAndBlock = '
+		%
+		/(?<!\\)    # negative look-behind to make sure start is not escaped 
+		(?:        # start non-capture group for all possible match starts
+		# group 1, match dollar signs only 
+		# single or double dollar sign enforced by look-arounds
+		((?<!\$)\${1,2}(?!\$))|
+		# group 2, match escaped parenthesis
+		(\\\()|
+		# group 3, match escaped bracket
+		(\\\[)|                 
+		# group 4, match begin equation
+		(\\begin\{equation\})
+		)
+		# if group 1 was start
+		(?(1)
+		# non greedy match everything in between
+		# group 1 matches do not support recursion
+		(.*?)(?<!\\)
+		# match ending double or single dollar signs
+		(?<!\$)\1(?!\$)|  
+		# else
+		(?:
+		# greedily and recursively match everything in between
+		# groups 2, 3 and 4 support recursion
+		(.*(?R)?.*)(?<!\\)
+		(?:
+			# if group 2 was start, escaped parenthesis is end
+			(?(2)\\\)|  
+			# if group 3 was start, escaped bracket is end
+			(?(3)\\\]|     
+			# else group 4 was start, match end equation
+			\\end\{equation\}
+		)
+		))))%gmx';
+
 		// Protect markdown block math
 		// 匹配多行LaTeX
         // 尽管只是多了一个$符号，却会引起指数级的回溯
@@ -523,11 +562,13 @@ class MathJax_Latex {
         $regexTeXMultilineLite = "/\$[\S\ ]+?\$/ix";
 
 		// 匹配块级LaTeX，主要针对块级数学公式，例如 \begin{equation} ... \end{equation}
-		$regexTeXMathBlock = '/\\begin\{([^}]+)\}(.*?)\\end\{\1\}/s';; 
+		$regexTeXMathBlock = '/\\begin\{(.+)\}(.*?)\\end\{\1\}/s';; 
 
 		$is_block_math = false;
 
 		$res_content = $content;
+
+		// echo "\n\n<br />1 content = **->".$content.'<-**';
 
 		$content = preg_replace_callback($regexTeXMultiline, function ($matches) {
 			if ( count( $matches ) === 1 ) {
@@ -542,8 +583,10 @@ class MathJax_Latex {
 		}, $content);
 
 		if ($is_block_math === false) {
-			echo "\n\n<br />22 content = ".$content;
+			echo "\n\n<br />22 content = **->".$content.'<-**';
 			$content = preg_replace_callback($regexTeXMathBlock, function ($matches) {
+				echo "hahaha----";
+				var_dump($matches);
 				if ( count( $matches ) === 1 ) {
 					// No matches found.
 					return $matches[0]; // 返回完整匹配.
@@ -554,6 +597,8 @@ class MathJax_Latex {
 				echo "\n\n<br />display math block = ".self::wp_filter_math_content( $matches[0] );
 				$res_content = '<!-- LATEX_START --><pre class="latex-block">' . self::wp_filter_math_content( $matches[0] ) . '</pre><!-- LATEX_END -->';
 			}, $content);
+
+			echo "\n\n<br />2 content = **->".$content.'<-**';
 		}
 
 		// echo "content = ".$content;
