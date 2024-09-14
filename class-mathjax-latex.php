@@ -473,6 +473,64 @@ class MathJax_Latex {
 		// echo "\n4)->".self::wp_remove_auto_br_p(shortcode_unautop(html_entity_decode($content)));
 		return self::wp_remove_auto_br_p(shortcode_unautop(html_entity_decode($content)));
 	}
+
+	public static function wp_protect_math_content_new($content) {
+		$is_block_math = false;
+	
+		// Match block LaTeX
+		$regexTeXMathBlockAll = '%
+		(?<!\\\\)(?:
+			(\\$\\$)
+			|
+			(\\\\\\[)
+			|
+			(\\\\begin\\{(?:equation|align|gather|multline|eqnarray)\\*?\\})
+		)
+		(?(1)
+			([\\S\\s]+?)
+			(?<!\\\\)\\$\\$
+		|
+			([\\S\\s]+?)
+			(?:
+				(?(2)\\\\\\]|
+				\\\\end\\{(?:equation|align|gather|multline|eqnarray)\\*?\\}
+				)
+			)
+		)
+		%ix';
+	
+		$content = preg_replace_callback($regexTeXMathBlockAll, function ($matches) use (&$is_block_math) {
+			$is_block_math = true;
+			$filtered_content = self::wp_filter_math_content($matches[0]);
+			return '<!-- LATEX_START --><pre class="latex-block">' . $filtered_content . '</pre><!-- LATEX_END -->';
+		}, $content);
+	
+		// Match inline LaTeX
+		if (!$is_block_math) {
+			$regexTeXInline = '%
+			(?<!\\\\)(?:
+				\\$
+					((?:
+						[^$\\\\]
+						|
+						\\\\[\\S\\s]
+					)+?)
+				(?<!\\\\)\\$
+				|
+				\\\\\\(
+					([\\S\\s]+?)
+				\\\\\\)
+			)
+			%ix';
+	
+			$content = preg_replace_callback($regexTeXInline, function ($matches) {
+				$filtered_content = self::wp_filter_math_content($matches[0]);
+				return '<!-- LATEX_START --><pre class="latex-inline">' . $filtered_content . '</pre><!-- LATEX_END -->';
+			}, $content);
+		}
+	
+		return $content;
+	}
 	/**
 	 * Protects inline and block math content from being altered by WordPress formatting.
 	 *
@@ -483,6 +541,7 @@ class MathJax_Latex {
 	 * @return string The filtered content with math protected.
 	 */
 	public static function wp_protect_math_content($content) {
+		$is_block_math = false;
 
 		// https://regex101.com/r/wP2aV6/25
 		// 匹配行内和块状LaTeX
@@ -521,6 +580,38 @@ class MathJax_Latex {
 			\\end\{equation\}
 		)
 		))))%gmx';
+
+		$regexTeXMathBlockAll = '
+		%
+		(?<!\\\\)    # negative look-behind to make sure start is not escaped 
+		(?:          # start non-capture group for all possible match starts
+			# group 1, match double dollar signs
+			(\$\$)
+			|
+			# group 2, match escaped bracket
+			(\\\[)
+			|                 
+			# group 3, match begin equation
+			(\\begin\{(?:equation|align|gather|multline)\})
+		)
+		# if group 1 was start ($$)
+		(?(1)
+			# non greedy match everything in between
+			([\S\s]+?)
+			# match ending double dollar signs
+			(?<!\\)\$\$
+		|   # else (groups 2 or 3)
+			# greedily match everything in between
+			([\S\s]+?)
+			(?:
+				# if group 2 was start, escaped bracket is end
+				(?(2)\\\]|     
+				# else group 3 was start, match end equation
+				\\end\{(?:equation|align|gather|multline)\}
+				)
+			)
+		)
+		%ix';
 
 		// Protect markdown block math
 		// 匹配多行LaTeX
@@ -562,13 +653,28 @@ class MathJax_Latex {
         $regexTeXMultilineLite = "/\$[\S\ ]+?\$/ix";
 
 		// 匹配块级LaTeX，主要针对块级数学公式，例如 \begin{equation} ... \end{equation}
-		$regexTeXMathBlock = '/\\begin\{(.+)\}(.*?)\\end\{\1\}/s';; 
+		$regexTeXMathBlock = '/\\begin\{(.+)\}([\s\S]*?)\\end\{\1\}/s';; 
 
 		$is_block_math = false;
 
 		$res_content = $content;
 
 		// echo "\n\n<br />1 content = **->".$content.'<-**';
+
+		$content = preg_replace_callback($regexTeXMathBlockAll, function ($matches) {
+			if ( count( $matches ) === 1 ) {
+				// No matches found.
+				return $matches[0]; // 返回完整匹配.
+			}
+
+			$is_block_math = true;
+
+			echo "\n\n<br />block math = ".self::wp_filter_math_content( $matches[0] );
+			$res_content = '<!-- LATEX_START --><pre class="latex-block">' . self::wp_filter_math_content( $matches[0] ) . '</pre><!-- LATEX_END -->';
+
+			return $res_content;
+		}, $content);
+
 
 		$content = preg_replace_callback($regexTeXMultiline, function ($matches) {
 			if ( count( $matches ) === 1 ) {
@@ -580,6 +686,8 @@ class MathJax_Latex {
 
 			echo "\n\n<br />display math = ".self::wp_filter_math_content( $matches[0] );
 			$res_content = '<!-- LATEX_START --><pre class="latex-block">' . self::wp_filter_math_content( $matches[0] ) . '</pre><!-- LATEX_END -->';
+
+			return $res_content;
 		}, $content);
 
 		if ($is_block_math === false) {
@@ -596,6 +704,8 @@ class MathJax_Latex {
 	
 				echo "\n\n<br />display math block = ".self::wp_filter_math_content( $matches[0] );
 				$res_content = '<!-- LATEX_START --><pre class="latex-block">' . self::wp_filter_math_content( $matches[0] ) . '</pre><!-- LATEX_END -->';
+
+				return $res_content;
 			}, $content);
 
 			echo "\n\n<br />2 content = **->".$content.'<-**';
@@ -616,6 +726,8 @@ class MathJax_Latex {
 				// if ( $matches[0] )
 				echo "\n\n<br />inline math = ".self::wp_filter_math_content( $matches[0] );
 				$res_content = '<!-- LATEX_START --><pre class="latex-inline">' . self::wp_filter_math_content( $matches[0] ) . '</pre><!-- LATEX_END -->';
+
+				return $res_content;
 			}, $content);
 		}
 
