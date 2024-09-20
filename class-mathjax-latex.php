@@ -547,15 +547,15 @@ class MathJax_Latex {
 		// 匹配行内和块状LaTeX
 		$regexTeXInlineAndBlock = '
 		%
-		/(?<!\\)    # negative look-behind to make sure start is not escaped 
+		/(?<!\\)    # negative look-behind to make sure start is not escaped
 		(?:        # start non-capture group for all possible match starts
-		# group 1, match dollar signs only 
+		# group 1, match dollar signs only
 		# single or double dollar sign enforced by look-arounds
 		((?<!\$)\${1,2}(?!\$))|
 		# group 2, match escaped parenthesis
 		(\\\()|
 		# group 3, match escaped bracket
-		(\\\[)|                 
+		(\\\[)|
 		# group 4, match begin equation
 		(\\begin\{equation\})
 		)
@@ -565,7 +565,7 @@ class MathJax_Latex {
 		# group 1 matches do not support recursion
 		(.*?)(?<!\\)
 		# match ending double or single dollar signs
-		(?<!\$)\1(?!\$)|  
+		(?<!\$)\1(?!\$)|
 		# else
 		(?:
 		# greedily and recursively match everything in between
@@ -573,9 +573,9 @@ class MathJax_Latex {
 		(.*(?R)?.*)(?<!\\)
 		(?:
 			# if group 2 was start, escaped parenthesis is end
-			(?(2)\\\)|  
+			(?(2)\\\)|
 			# if group 3 was start, escaped bracket is end
-			(?(3)\\\]|     
+			(?(3)\\\]|
 			# else group 4 was start, match end equation
 			\\end\{equation\}
 		)
@@ -655,7 +655,7 @@ class MathJax_Latex {
 		// 匹配块级LaTeX，主要针对块级数学公式，例如 \begin{equation} ... \end{equation}
 		$regexTeXMathBlock = '/\\begin\{(.+)\}([\s\S]*?)\\end\{\1\}/s';; 
 
-		$is_block_math = false;
+		// $is_block_math = false;
 
 		$res_content = $content;
 
@@ -667,7 +667,7 @@ class MathJax_Latex {
 				return $matches[0]; // 返回完整匹配.
 			}
 
-			$is_block_math = true;
+			// $is_block_math = true;
 
 			echo "\n\n<br />block math = ".self::wp_filter_math_content( $matches[0] );
 			$res_content = '<!-- LATEX_START --><pre class="latex-block">' . self::wp_filter_math_content( $matches[0] ) . '</pre><!-- LATEX_END -->';
@@ -682,7 +682,7 @@ class MathJax_Latex {
 				return $matches[0]; // 返回完整匹配.
 			}
 
-			$is_block_math = true;
+			// $is_block_math = true;
 
 			echo "\n\n<br />display math = ".self::wp_filter_math_content( $matches[0] );
 			$res_content = '<!-- LATEX_START --><pre class="latex-block">' . self::wp_filter_math_content( $matches[0] ) . '</pre><!-- LATEX_END -->';
@@ -700,7 +700,7 @@ class MathJax_Latex {
 					return $matches[0]; // 返回完整匹配.
 				}
 	
-				$is_block_math = true;
+				// $is_block_math = true;
 	
 				echo "\n\n<br />display math block = ".self::wp_filter_math_content( $matches[0] );
 				$res_content = '<!-- LATEX_START --><pre class="latex-block">' . self::wp_filter_math_content( $matches[0] ) . '</pre><!-- LATEX_END -->';
